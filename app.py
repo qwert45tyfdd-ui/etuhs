@@ -1,27 +1,13 @@
-
-import os
 from pathlib import Path
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
-from openai import AsyncOpenAI
+from pydantic import BaseModel, Field
+
+from ai_engine import ask_ai
 
 BASE_DIR = Path(__file__).resolve().parent
-
-load_dotenv(BASE_DIR / ".env")
-API_KEY = os.getenv("OPENROUTER_API_KEY")
-
-client = None
-if API_KEY:
-    client = AsyncOpenAI(
-        api_key=API_KEY,
-        base_url="https://openrouter.ai/api/v1"
-    )
-
-MODEL = "openrouter/free"
 
 app = FastAPI(
     title="Smart Assistant",
@@ -32,14 +18,14 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"]
 )
 
 class ChatRequest(BaseModel):
     message: str
-    history: list[dict] = []
+    history: list[dict] = Field(default_factory=list)
 
 @app.get("/")
 async def home():
@@ -51,41 +37,38 @@ async def health():
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
-    if not client:
-        raise HTTPException(
-            status_code=500,
-            detail="مفتاح OpenRouter غير موجود في ملف .env"
-        )
-
     message = request.message.strip()
+
     if not message:
-        raise HTTPException(status_code=400, detail="اكتب رسالتك أولاً")
+        raise HTTPException(
+            status_code=400,
+            detail="اكتب رسالتك أولاً"
+        )
 
     history = []
+
     for item in request.history[-20:]:
-        if item.get("role") in ("user", "assistant"):
-            content = item.get("content")
-            if isinstance(content, str):
-                history.append({
-                    "role": item["role"],
-                    "content": content
-                })
+        if not isinstance(item, dict):
+            continue
+
+        role = item.get("role")
+        content = item.get("content")
+
+        if role in ("user", "assistant") and isinstance(content, str):
+            history.append({
+                "role": role,
+                "content": content
+            })
 
     try:
-        response = await client.chat.completions.create(
-            model=MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "أنت مساعد ذكي مفيد. أجب باللغة العربية بوضوح وود."
-                },
-                *history,
-                {"role": "user", "content": message}
-            ]
-        )
+        answer = await ask_ai(message, history)
+        return {"reply": answer}
 
-        answer = response.choices[0].message.content
-        return {"reply": answer or "لم أتمكن من إنشاء رد."}
+    except RuntimeError:
+        raise HTTPException(
+            status_code=503,
+            detail="إعداد مفتاح الذكاء الاصطناعي غير مكتمل"
+        )
 
     except Exception as e:
         raise HTTPException(
