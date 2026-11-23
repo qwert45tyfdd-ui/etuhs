@@ -1,0 +1,10 @@
+.env*
+__pycache__/
+*.pyc
+*.bak
+*.backup
+*.before_*
+backups/
+memory/
+projects/
+part1.txt
