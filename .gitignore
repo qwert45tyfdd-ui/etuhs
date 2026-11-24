@@ -8,3 +8,6 @@ backups/
 memory/
 projects/
 part1.txt
+
+.env
+.env*
